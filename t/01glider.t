@@ -28,7 +28,13 @@ my $expectedstats = {
 is_deeply($stats, $expectedstats, 'Initial Statistics');
 
 my $snapshot = $board->snapshot;
-my $expectedSnapshot = ".....\n..O..\n.O...\n.OOO.\n.....\n";
+my $expectedSnapshot = join('',
+	".....\n",
+	"..O..\n",
+	".O...\n",
+	".OOO.\n",
+	".....\n"
+);
 cmp_ok( $snapshot->{'snapshot'}, 'eq', $expectedSnapshot, 'Snapshot' );
 for (1..800) {
 	$board->tick(0);
@@ -52,8 +58,9 @@ $expectedstats = {
 		'usedCells'	=> 22,
 };
 
-is_deeply($stats, $expectedstats, 'Generation 800 Statistics');
 $snapshot = $board->snapshot;
+is_deeply($stats, $expectedstats, 'Generation 800 Statistics') || diag explain { stats => $stats, 
+										stats2 => $expectedstats,
+										sn1 => $snapshot, 
+										sn2 => $expectedSnapshot };
 cmp_ok( $snapshot->{'snapshot'}, 'eq', $expectedSnapshot, 'Generation 800 Snapshot' );
-
-

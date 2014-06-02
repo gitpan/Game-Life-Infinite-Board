@@ -28,7 +28,22 @@ my $expectedstats = {
 is_deeply($stats, $expectedstats, 'Initial Statistics');
 
 my $snapshot = $board->snapshot;
-my $expectedSnapshot = "....................\n.....OO......OO.....\n....O.O......O.O....\n....O..........O....\n.OO.O..........O.OO.\n.OO.O.O..OO..O.O.OO.\n....O.O.O..O.O.O....\n....O.O.O..O.O.O....\n.OO.O.O..OO..O.O.OO.\n.OO.O..........O.OO.\n....O..........O....\n....O.O......O.O....\n.....OO......OO.....\n....................\n";
+my $expectedSnapshot = join ('',
+	"....................\n",
+	".....OO......OO.....\n",
+	"....O.O......O.O....\n",
+	"....O..........O....\n",
+	".OO.O..........O.OO.\n",
+	".OO.O.O..OO..O.O.OO.\n",
+	"....O.O.O..O.O.O....\n",
+	"....O.O.O..O.O.O....\n",
+	".OO.O.O..OO..O.O.OO.\n",
+	".OO.O..........O.OO.\n",
+	"....O..........O....\n",
+	"....O.O......O.O....\n",
+	".....OO......OO.....\n",
+	"....................\n"
+);
 cmp_ok( $snapshot->{'snapshot'}, 'eq', $expectedSnapshot, 'Snapshot' );
 for (1..10) {
 	$board->tick(10);
@@ -52,8 +67,11 @@ $expectedstats = {
 		'usedCells'	=> 208,
 };
 
-is_deeply($stats, $expectedstats, 'Generation 6 Statistics');
 $snapshot = $board->snapshot;
-cmp_ok( $snapshot->{'snapshot'}, 'eq', $expectedSnapshot, 'Generation 6 Snapshot' );
+is_deeply($stats, $expectedstats, 'Generation 10 Statistics') || diag explain { stats => $stats, 
+										stats2 => $expectedstats,
+										sn1 => $snapshot, 
+										sn2 => $expectedSnapshot };
+cmp_ok( $snapshot->{'snapshot'}, 'eq', $expectedSnapshot, 'Generation 10 Snapshot' );
 
 

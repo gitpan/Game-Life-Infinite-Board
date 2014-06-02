@@ -1,4 +1,5 @@
 README
+CHANGES
 lib/Game/Life/Infinite/Board.pm
 Makefile.PL
 MANIFEST

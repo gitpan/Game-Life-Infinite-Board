@@ -10,7 +10,7 @@ require 5.10.1;
 BEGIN {
     use Exporter   ();
     use vars       qw($VERSION @ISA @EXPORT %EXPORT_TAGS);
-    $VERSION     = sprintf( "%d.%02d", q($Revision: 0.01 $) =~ /\s(\d+)\.(\d+)/ );
+    $VERSION     = sprintf( "%d.%02d", q($Revision: 0.02 $) =~ /\s(\d+)\.(\d+)/ );
     @ISA         = qw(Exporter);
     @EXPORT      = qw();
     %EXPORT_TAGS = ( );
