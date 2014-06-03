@@ -9,10 +9,10 @@ require 5.10.1;
 
 BEGIN {
     use Exporter   ();
-    use vars       qw($VERSION @ISA @EXPORT %EXPORT_TAGS);
-    $VERSION     = sprintf( "%d.%02d", q($Revision: 0.02 $) =~ /\s(\d+)\.(\d+)/ );
+    use vars       qw($VERSION @ISA @EXPORT_OK %EXPORT_TAGS);
+    $VERSION     = sprintf( "%d.%02d", q($Revision: 0.03 $) =~ /\s(\d+)\.(\d+)/ );
     @ISA         = qw(Exporter);
-    @EXPORT      = qw();
+    @EXPORT_OK   = qw();
     %EXPORT_TAGS = ( );
 }
 
@@ -28,6 +28,7 @@ sub new {
 	$self->{'currentFn'} = 'Untitled.cells';
 	$self->{'name'} = 'Untitled';
 	$self->{'totalTime'} = 0;
+	$self->{'osccheck'} = 0;
 	# Check for rules:
 	&setRules($self, $rulesRef);
 	&updateCell($self, 0, 0, 0);	# Create first cell in 0,0 coordinates.
@@ -40,6 +41,7 @@ sub setRules {
 	my ($breedRef, $liveRef) = (ref($rulesRef) eq "ARRAY") ? ($rulesRef->[0], $rulesRef->[1]) : ([3], [2,3]);
 	$self->{'breedRules'} = (ref($breedRef) eq "ARRAY") ? $breedRef : [];
 	$self->{'liveRules'} = (ref($liveRef) eq "ARRAY") ? $liveRef : [];
+	return;
 };
 
 sub updateCell {
@@ -80,6 +82,7 @@ sub updateCell {
 		};
 	};
 	$self->{'cells'}->{$xpos, $ypos}->{'state'} = $state;
+	return;
 };
 
 sub queryCell {
@@ -88,7 +91,7 @@ sub queryCell {
 	if (defined $self->{'cells'}->{$xpos, $ypos}) {
 		return $self->{'cells'}->{$xpos, $ypos}->{'state'};
 	} else {
-		return undef;
+		return;
 	};
 };
 
@@ -103,6 +106,7 @@ sub createCell {
 	$self->{'maxy'} < $ypos and $self->{'maxy'} = $ypos;
 	$self->{'miny'} > $ypos and $self->{'miny'} = $ypos;
 	++$self->{'usedCells'};
+	return;
 };
 
 sub loadInit {
@@ -122,6 +126,7 @@ sub loadInit {
 		};
 		$xx++;
 	};
+	close $input;
 	return $fn;
 };
 
@@ -129,22 +134,23 @@ sub saveGridTxt {
 	# Save a grid to a txt file.
 	my ($self, $fn, @rest) = @_;
 	if (not defined $fn) { return; };
-	open(MYOUT, ">", $fn) or die "cannot open $fn: $!\n";
+	my $output;
+	open($output, ">", $fn) or die "cannot open $fn: $!\n";
 	for (my $yy = $self->{'miny'}; $yy <= $self->{'maxy'}; $yy++) {
 		foreach my $xx ($self->{'minx'} .. $self->{'maxx'}) {
 			if (defined ($self->{'cells'}->{$xx, $yy})) {
 				if ($self->{'cells'}->{$xx, $yy}->{'state'} == 1) {
-					print MYOUT 'O';
+					print $output 'O';
 				} else {
-					print MYOUT '.';
+					print $output '.';
 				};
 			} else {
-				print MYOUT '.';
+				print $output '.';
 			};
 		};
-		print MYOUT "\n";
+		print $output "\n";
 	};
-	close MYOUT;
+	close $output;
 	return $fn;
 };
 
@@ -173,13 +179,14 @@ sub crudePrintBoard {
 	my $stats = &statistics($self);
 	print "---\tGeneration: " . $stats->{'generation'} . " x: " . $stats->{'minx'} . ".." . $stats->{'maxx'} . " y: " . $stats->{'miny'} . ".." . $stats->{'maxy'} . " Size: $stats->{'size'} LiveCells: " . $stats->{'liveCells'} . "\n"; 
 	print "\tDelta: " . $stats->{'delta'} . "\n";
+	return;
 };
 
 sub tick {
 	# Calculate next epoch.
 	my ($self, $oscCheck) = @_;
 	my $t0 = [Time::HiRes::gettimeofday()];
-	$oscCheck = (defined $oscCheck) ? $oscCheck : 0;
+	$oscCheck = &setOscCheck($self, $oscCheck); 
 	my @newCells;
 	my @dieCells;
 
@@ -196,36 +203,12 @@ sub tick {
 	};
 	$self->{'gen'} = $self->{'gen'} + 1;
 	$self->{'factor2'} = ((defined $self->{'usedCells'}) and ($self->{'usedCells'} > 0)) ? $self->{'liveCells'} / $self->{'usedCells'} : 1;
-	if ($oscCheck > 1) {
-		my $lgen = $self->{'gen'};
-		my $ogen;
-		$self->{'snapshots'}->{"s$lgen"} = &snapshot($self);	# Smile!
-		for (my $i = 2; $i <= $oscCheck; $i++) {
-			$ogen = $lgen - $i;
-			if (defined ($self->{'snapshots'}->{"s$ogen"})) {
-				# Snapshot of grandma!
-				if (
-					($self->{'snapshots'}->{"s$ogen"}->{'snapshot'} eq $self->{'snapshots'}->{"s$lgen"}->{'snapshot'}) and
-					($self->{'snapshots'}->{"s$ogen"}->{'minx'} == $self->{'snapshots'}->{"s$lgen"}->{'minx'}) and
-					($self->{'snapshots'}->{"s$ogen"}->{'maxx'} == $self->{'snapshots'}->{"s$lgen"}->{'maxx'}) and
-					($self->{'snapshots'}->{"s$ogen"}->{'miny'} == $self->{'snapshots'}->{"s$lgen"}->{'miny'}) and
-					($self->{'snapshots'}->{"s$ogen"}->{'maxy'} == $self->{'snapshots'}->{"s$lgen"}->{'maxy'})
-				) {
-					# Grandma and grandson are identical!
-					$self->{'oscilator'} = $i;
-					last;
-				} else {
-					$self->{'oscilator'} = 0;
-				};
-			};
-		};
-		# Delete oldest snapshot.
-		delete $self->{'snapshots'}->{"s$ogen"};
-	};
+	if ($oscCheck > 1) { &oscCheck($self, $oscCheck); };
   	my $t1 = [Time::HiRes::gettimeofday];
   	my $t0_t1 = Time::HiRes::tv_interval( $t0, $t1 );
 	$self->{'lastTI'} = $t0_t1;	# Time spend to calculate last epoch.
 	$self->{'totalTime'} += $t0_t1;	# Total Time spend calculating this board.
+	return;
 };
 
 sub tickMainLoop {
@@ -250,6 +233,50 @@ sub tickMainLoop {
 		};
 	};
 	return {'newCells' => \@newCells, 'dieCells' => \@dieCells};
+};
+
+sub setOscCheck {
+	my ($self, $oscCheck) = @_;
+
+	$oscCheck = (defined $oscCheck) ? $oscCheck : 0;
+	if ($oscCheck != $self->{'osccheck'}) {
+		# Change, delete all previous snapshots:
+		delete $self->{'snapshots'};
+	};
+	$self->{'osccheck'} = $oscCheck;
+	return $oscCheck;
+};
+
+sub oscCheck {
+	my ($self, $oscCheck) = @_;
+	my $lgen = $self->{'gen'};
+	my $lgenString = sprintf("s%d", $lgen);
+	my $ogen;
+	my $ogenString;
+	$self->{'snapshots'}->{$lgenString} = &snapshot($self);	# Smile!
+	for (my $i = 2; $i <= $oscCheck; $i++) {
+		$ogen = $lgen - $i;
+		$ogenString = sprintf("s%d", $ogen);
+		if (defined ($self->{'snapshots'}->{$ogenString})) {
+			# Snapshot of grandma!
+			if (
+				($self->{'snapshots'}->{$ogenString}->{'snapshot'} eq $self->{'snapshots'}->{$lgenString}->{'snapshot'}) and
+				($self->{'snapshots'}->{$ogenString}->{'minx'} == $self->{'snapshots'}->{$lgenString}->{'minx'}) and
+				($self->{'snapshots'}->{$ogenString}->{'maxx'} == $self->{'snapshots'}->{$lgenString}->{'maxx'}) and
+				($self->{'snapshots'}->{$ogenString}->{'miny'} == $self->{'snapshots'}->{$lgenString}->{'miny'}) and
+				($self->{'snapshots'}->{$ogenString}->{'maxy'} == $self->{'snapshots'}->{$lgenString}->{'maxy'})
+			) {
+				# Grandma and grandson are identical!
+				$self->{'oscilator'} = $i;
+				last;
+			} else {
+				$self->{'oscilator'} = 0;
+			};
+		};
+	};
+	# Delete oldest snapshot.
+	delete $self->{'snapshots'}->{$ogenString};
+	return;
 };
 
 sub snapshot {
@@ -307,6 +334,7 @@ sub shrinkBoard {
 			if ($yy < $self->{'miny'}) { $self->{'miny'} = $yy; };
 		};
 	};
+	return;
 };
 
 sub statistics {

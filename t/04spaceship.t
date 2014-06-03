@@ -39,7 +39,7 @@ my $expectedSnapshot = join('',
 	"..................\n"
 );
 cmp_ok( $snapshot->{'snapshot'}, 'eq', $expectedSnapshot, 'Snapshot' );
-for (1..192) {
+for (1..194) {
 	$board->tick(2);
 	$board->shrinkBoard;
 };
@@ -50,7 +50,7 @@ delete $stats->{'lastTI'};
 delete $stats->{'factor2'};
 $expectedstats = {
 		'size'		=> 240,
-		'generation'	=> 192,
+		'generation'	=> 194,
 		'minx'		=> -15,
 		'maxx'		=> 0,
 		'miny'		=> -4,
@@ -81,10 +81,10 @@ $expectedSnapshot = join('',
 	"................\n"
 );
 $snapshot = $board->snapshot;
-is_deeply($stats, $expectedstats, 'Generation 192 Statistics') || diag explain { stats => $stats, 
+is_deeply($stats, $expectedstats, 'Generation 194 Statistics') || diag explain { stats => $stats, 
 										stats2 => $expectedstats,
 										sn1 => $snapshot, 
 										sn2 => $expectedSnapshot };
-cmp_ok( $snapshot->{'snapshot'}, 'eq', $expectedSnapshot, 'Generation 192 Snapshot' );
+cmp_ok( $snapshot->{'snapshot'}, 'eq', $expectedSnapshot, 'Generation 194 Snapshot' );
 
 

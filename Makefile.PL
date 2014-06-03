@@ -8,4 +8,5 @@ WriteMakefile(
     	"Time::HiRes" => "1.9721",
 	},
     MIN_PERL_VERSION => '5.10.1',
+    LICENSE => 'perl_5',
 );

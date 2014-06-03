@@ -1,3 +1,10 @@
+0.03:
+
+- Small code style fixes.
+- Test fix.
+- Changes in oscilator check.
+- Added license in Makefile.PL
+
 0.02:
 
 - Better tests.
