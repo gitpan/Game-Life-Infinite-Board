@@ -1,3 +1,11 @@
+0.04:
+
+- Support for colorised life - Immigration
+- Support for colorised life - Quadlife
+- Garbage collection (deleting unused hash entries) is now performed on each 
+  tick. shrinkBoard is now deprecated from this aspect and must only be used 
+  to shrink the board's boundaries.
+
 0.03:
 
 - Small code style fixes.

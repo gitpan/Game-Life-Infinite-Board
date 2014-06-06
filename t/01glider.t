@@ -38,7 +38,6 @@ my $expectedSnapshot = join('',
 cmp_ok( $snapshot->{'snapshot'}, 'eq', $expectedSnapshot, 'Snapshot' );
 for (1..800) {
 	$board->tick(0);
-	$board->shrinkBoard;
 };
 $board->shrinkBoard;
 $stats = $board->statistics;

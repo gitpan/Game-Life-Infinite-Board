@@ -8,9 +8,13 @@ t/01glider.t
 t/02stoplight.t
 t/03101.t
 t/04spaceship.t
+t/05cgc.t
+t/06cyclicglider.t
 t/testInput/101.cells
 t/testInput/17c45_spaceship.cells
 t/testInput/glider.cells
 t/testInput/stoplight.cells
+t/testInput/colorgliderscrush.cells
+t/testInput/cyclicglider.cells
 META.yml                                 Module YAML meta-data (added by MakeMaker)
 META.json                                Module JSON meta-data (added by MakeMaker)

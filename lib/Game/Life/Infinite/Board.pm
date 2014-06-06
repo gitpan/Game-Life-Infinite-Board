@@ -10,7 +10,7 @@ require 5.10.1;
 BEGIN {
     use Exporter   ();
     use vars       qw($VERSION @ISA @EXPORT_OK %EXPORT_TAGS);
-    $VERSION     = sprintf( "%d.%02d", q($Revision: 0.03 $) =~ /\s(\d+)\.(\d+)/ );
+    $VERSION     = sprintf( "%d.%02d", q($Revision: 0.04 $) =~ /\s(\d+)\.(\d+)/ );
     @ISA         = qw(Exporter);
     @EXPORT_OK   = qw();
     %EXPORT_TAGS = ( );
@@ -29,6 +29,7 @@ sub new {
 	$self->{'name'} = 'Untitled';
 	$self->{'totalTime'} = 0;
 	$self->{'osccheck'} = 0;
+	$self->{'color'} = 0;
 	# Check for rules:
 	&setRules($self, $rulesRef);
 	&updateCell($self, 0, 0, 0);	# Create first cell in 0,0 coordinates.
@@ -39,9 +40,40 @@ sub new {
 sub setRules {
 	my ( $self, $rulesRef) = @_;
 	my ($breedRef, $liveRef) = (ref($rulesRef) eq "ARRAY") ? ($rulesRef->[0], $rulesRef->[1]) : ([3], [2,3]);
+	if ($self->{'color'} > 0) {
+		# Force standard rules in colourised board.
+		($breedRef, $liveRef) = ([3], [2,3]);
+	};
 	$self->{'breedRules'} = (ref($breedRef) eq "ARRAY") ? $breedRef : [];
 	$self->{'liveRules'} = (ref($liveRef) eq "ARRAY") ? $liveRef : [];
 	return;
+};
+
+sub setColor {
+	my ($self, $color) = @_;
+	$color = (defined $color) ? $color : ''; 
+	if ($self->{'gen'} > 0) {return;};
+	if (lc($color) eq 'immigration') {
+		$self->{'color'} = 1;
+		# Reset rules to standard:
+		&setRules($self, undef);
+		return 1;
+	} elsif (lc($color) eq 'quadlife') {
+		$self->{'color'} = 2;
+		# Reset rules to standard:
+		&setRules($self, undef);
+		return 2;
+	} elsif (lc($color) eq 'normal') {
+		$self->{'color'} = 0;
+		return 0;
+	} else {
+		return;
+	};
+};
+
+sub getColor {
+	my $self = shift;
+	return $self->{'color'};
 };
 
 sub updateCell {
@@ -49,6 +81,7 @@ sub updateCell {
 	my ( $self, $xpos, $ypos, $state ) = @_;
 	defined ($self->{'cells'}->{$xpos, $ypos}) or &createCell($self, $xpos, $ypos);
 	if (($self->{'cells'}->{$xpos, $ypos}->{'state'}) and (not $state)) {
+		my $oldstate = $self->{'cells'}->{$xpos, $ypos}->{'state'};
 		--$self->{'liveCells'};
 		# Update neighbours counts:
 		foreach my $xx ($xpos-1 .. $xpos+1) {
@@ -57,14 +90,25 @@ sub updateCell {
 					next;
 				};
 				if (defined ($self->{'cells'}->{$xx, $yy})) {
-					--$self->{'cells'}->{$xx, $yy}->{'neighbours'};
+					--$self->{'cells'}->{$xx, $yy}->{'neighbours'}->{$oldstate};
+					--$self->{'cells'}->{$xx, $yy}->{'neighbours'}->{'total'};
 				} else {
-					&createCell($self, $xx, $yy);
+					#&createCell($self, $xx, $yy);
 				};
 			};
 		};
 	};
 	if ((not $self->{'cells'}->{$xpos, $ypos}->{'state'}) and ($state)) {
+		# Check validity:
+		if (
+			(($state > 1) and ($self->{'color'} < 1)) or
+			(($state > 2) and ($self->{'color'} < 2)) or
+			($state > 4) or
+			($state < 0)
+		) {
+			# Invalid state for current color.
+			return -1;
+		};
 		++$self->{'liveCells'};
 		# Update neighbours counts:
 		foreach my $xx ($xpos-1 .. $xpos+1) {
@@ -73,10 +117,12 @@ sub updateCell {
 					next;
 				};
 				if (defined ($self->{'cells'}->{$xx, $yy})) {
-					++$self->{'cells'}->{$xx, $yy}->{'neighbours'};
+					++$self->{'cells'}->{$xx, $yy}->{'neighbours'}->{$state};
+					++$self->{'cells'}->{$xx, $yy}->{'neighbours'}->{'total'};
 				} else {
 					&createCell($self, $xx, $yy);
-					++$self->{'cells'}->{$xx, $yy}->{'neighbours'};
+					++$self->{'cells'}->{$xx, $yy}->{'neighbours'}->{$state};
+					++$self->{'cells'}->{$xx, $yy}->{'neighbours'}->{'total'};
 				};
 			};
 		};
@@ -99,7 +145,11 @@ sub createCell {
 	# Create an empty cell.
 	my ($self, $xpos, $ypos, @rest) = @_;
 	$self->{'cells'}->{$xpos, $ypos}->{'state'} = 0;
-	$self->{'cells'}->{$xpos, $ypos}->{'neighbours'} = 0;
+	$self->{'cells'}->{$xpos, $ypos}->{'neighbours'}->{1} = 0;
+	$self->{'cells'}->{$xpos, $ypos}->{'neighbours'}->{2} = 0;
+	$self->{'cells'}->{$xpos, $ypos}->{'neighbours'}->{3} = 0;
+	$self->{'cells'}->{$xpos, $ypos}->{'neighbours'}->{4} = 0;
+	$self->{'cells'}->{$xpos, $ypos}->{'neighbours'}->{'total'} = 0;
 	# Update boundaries:
 	$self->{'maxx'} < $xpos and $self->{'maxx'} = $xpos;
 	$self->{'minx'} > $xpos and $self->{'minx'} = $xpos;
@@ -114,19 +164,43 @@ sub loadInit {
 	my ($self, $fn, @rest) = @_;
 	if (not defined $fn) { return 'Untitled.cells'; };
 	my $xx = my $yy = my $cnt = 0;
+	my $immigration = my $quadlife = 0;
 	my $input;
 	open($input, "<", $fn) or die "cannot open $input: $!\n";
 	while (<$input>) {
 		chomp;
+		if ($_ =~ /^!/) { next; };
 		for ($yy = 0; $yy <= length($_); $yy++) {
 			if (substr($_, $yy, 1) eq 'O') {
 				&updateCell($self, $yy, $xx, 1);
 				$cnt++;
+			} elsif (substr($_, $yy, 1) eq '2') {
+				&setColor($self, 'immigration') or die "Failed to set color on load!\n";
+				&updateCell($self, $yy, $xx, 2);
+				$immigration = 1;
+				$cnt++;
+			} elsif (substr($_, $yy, 1) eq '3') {
+				&setColor($self, 'quadlife') or die "Failed to set color on load!\n";
+				&updateCell($self, $yy, $xx, 3);
+				$quadlife = 1;
+				$cnt++;
+			} elsif (substr($_, $yy, 1) eq '4') {
+				&setColor($self, 'quadlife') or die "Failed to set color on load!\n";
+				&updateCell($self, $yy, $xx, 4);
+				$quadlife = 1;
+				$cnt++;
 			};
+
 		};
 		$xx++;
 	};
 	close $input;
+	# Finalize board colour:
+	if ($quadlife) {
+		&setColor($self, 'quadlife') or die "Failed to set color on load!\n";
+	} elsif ($immigration) {
+		&setColor($self, 'immigration') or die "Failed to set color on load!\n";
+	};
 	return $fn;
 };
 
@@ -141,6 +215,8 @@ sub saveGridTxt {
 			if (defined ($self->{'cells'}->{$xx, $yy})) {
 				if ($self->{'cells'}->{$xx, $yy}->{'state'} == 1) {
 					print $output 'O';
+				} elsif ($self->{'cells'}->{$xx, $yy}->{'state'} > 1) {
+					print $output $self->{'cells'}->{$xx, $yy}->{'state'};
 				} else {
 					print $output '.';
 				};
@@ -167,6 +243,8 @@ sub crudePrintBoard {
 			if (defined ($self->{'cells'}->{$xx, $yy})) {
 				if ($self->{'cells'}->{$xx, $yy}->{'state'} == 1) {
 					print 'O';
+				} elsif ($self->{'cells'}->{$xx, $yy}->{'state'} > 1) {
+					print $self->{'cells'}->{$xx, $yy}->{'state'};
 				} else {
 					print '.';
 				};
@@ -187,19 +265,28 @@ sub tick {
 	my ($self, $oscCheck) = @_;
 	my $t0 = [Time::HiRes::gettimeofday()];
 	$oscCheck = &setOscCheck($self, $oscCheck); 
-	my @newCells;
-	my @dieCells;
 
 	my $resref = &tickMainLoop($self);
-	@newCells = @{$resref->{'newCells'}};
-	@dieCells = @{$resref->{'dieCells'}};
+	my @newCells = @{$resref->{'newCells'}};
+	my @dieCells = @{$resref->{'dieCells'}};
+	my @delCells = @{$resref->{'delCells'}};
+	#use Data::Dumper;
+	#print "DEBUG: newCells: " . &Dumper(\@newCells) . "\n";
+	#print "DEBUG: dieCells: " . &Dumper(\@dieCells) . "\n";
 	$self->{'delta'} = scalar(@newCells) + scalar(@dieCells);
 	# Apply changes on board:
+	foreach my $rec (@delCells) {
+		delete $self->{'cells'}->{$rec->[0], $rec->[1]};	
+		--$self->{'usedCells'};
+	};
 	foreach my $rec (@newCells) {
-		&updateCell($self, $rec->[0], $rec->[1], 1);
+		# TODO: Do something in case of error?
+		my $error = &updateCell($self, $rec->[0], $rec->[1], $rec->[2]);
+		$error = (defined $error) ? $error : 0;
+		#print "DEBUG: New cell $rec->[0],$rec->[1], status $rec->[2], result $error\n";
 	};
 	foreach my $rec (@dieCells) {
-		&updateCell($self, $rec->[0], $rec->[1], 0);
+		my $error = &updateCell($self, $rec->[0], $rec->[1], 0);
 	};
 	$self->{'gen'} = $self->{'gen'} + 1;
 	$self->{'factor2'} = ((defined $self->{'usedCells'}) and ($self->{'usedCells'} > 0)) ? $self->{'liveCells'} / $self->{'usedCells'} : 1;
@@ -212,27 +299,90 @@ sub tick {
 };
 
 sub tickMainLoop {
+	# TODO: Return new cell's color if board is immigration or quadlife.
 	my ($self) = @_;
 	my @newCells;
 	my @dieCells;
+	my @delCells;
 	foreach my $key (keys %{ $self->{'cells'} }) {
 		my ($xx, $yy) = split(/$;/, $key, 2);
 		my $rec = [$xx, $yy];
 		if (
-			($self->{'cells'}->{$xx, $yy}->{'state'} == 1) and 
-			(not $self->{'cells'}->{$xx, $yy}->{'neighbours'} ~~ $self->{'liveRules'})
+			($self->{'cells'}->{$xx, $yy}->{'state'} > 0) and 
+			(not $self->{'cells'}->{$xx, $yy}->{'neighbours'}->{'total'} ~~ $self->{'liveRules'})
 		) {
 			# Die.
 			push @dieCells, $rec;
 		} elsif (
 			($self->{'cells'}->{$xx, $yy}->{'state'} == 0) and 
-			($self->{'cells'}->{$xx, $yy}->{'neighbours'} ~~ $self->{'breedRules'})
+			($self->{'cells'}->{$xx, $yy}->{'neighbours'}->{'total'} ~~ $self->{'breedRules'})
 		) {
 			# New.
-			push @newCells, $rec;
+			if ($self->{'color'} == 0) {
+				# Standard
+				$rec->[2] = 1;
+				push @newCells, $rec;
+			} else {
+				# Colorized
+				#use Data::Dumper;
+				#print "DEBUG: " . &Dumper($self->{'cells'}->{$xx, $yy}) . "\n";
+				my @colorcounts = ();
+				my $ccnt = 0;
+				foreach my $state (keys %{ $self->{'cells'}->{$xx, $yy}->{'neighbours'} }) {
+					if ($state ne 'total') {
+						if ($self->{'cells'}->{$xx, $yy}->{'neighbours'}->{$state} > 0) {
+							$colorcounts[$state] = $self->{'cells'}->{$xx, $yy}->{'neighbours'}->{$state};
+							$ccnt++;
+						};
+					};
+				};
+				#print "DEBUG: " . &Dumper(\@colorcounts) . "\n";
+				if ($ccnt == 2) {
+					# Immigration, or first rule of Quadlife (Identical).
+					# Select maximum.
+					my $max = -1;
+					for my $i (1..4) {
+						if (defined $colorcounts[$i]) {
+							if ($colorcounts[$i] > $max) { 
+								$max = $colorcounts[$i];
+								$rec->[2] = $i 
+							};
+						};
+					};
+					#print "\tDEBUG: 2 colors, $rec->[2]";
+				} elsif ($ccnt == 3) {
+					# Second rule of Quadlife
+					for my $i (1..4) {
+						if (not defined $colorcounts[$i]) {
+							$rec->[2] = $i;
+							last;
+						};
+					};
+					#print "\tDEBUG: 3 colors, $rec->[2]";
+				} elsif ($ccnt == 1) {
+					# Same color as parents:
+					for my $i (1..4) {
+						if (defined $colorcounts[$i]) {
+							$rec->[2] = $i;
+							last;
+						};
+					};
+					#print "\tDEBUG: 1 color, $rec->[2]";
+				} else {
+					# Unsupported or standard. Return first color.
+					$rec->[2] = 1;
+				};
+				push @newCells, $rec;
+			};
+		} elsif (
+			($self->{'cells'}->{$xx, $yy}->{'state'} == 0) and 
+			($self->{'cells'}->{$xx, $yy}->{'neighbours'}->{'total'} == 0)
+		) {
+			# Isolated empty cell. GC.
+			push @delCells, $rec;
 		};
 	};
-	return {'newCells' => \@newCells, 'dieCells' => \@dieCells};
+	return {'newCells' => \@newCells, 'dieCells' => \@dieCells, 'delCells' => \@delCells};
 };
 
 sub setOscCheck {
@@ -290,6 +440,8 @@ sub snapshot {
 			if (defined ($self->{'cells'}->{$xx, $yy})) {
 				if ($self->{'cells'}->{$xx, $yy}->{'state'} == 1) {
 					$snapshot .= 'O';
+				} elsif ($self->{'cells'}->{$xx, $yy}->{'state'} > 1) {
+					$snapshot .= $self->{'cells'}->{$xx, $yy}->{'state'};
 				} else {
 					$snapshot .= '.';
 				};
@@ -310,9 +462,8 @@ sub snapshot {
 };
 
 sub shrinkBoard {
-	# Shrink board: less space used, less cells to check for each epoch.
+	# Shrink board: Now mostly used to keep boundaries track, for printing and snapshot.
 	my $self = shift;
-	# Just remove all empty cells with zero neighbours:
 	$self->{'minx'} = $self->{'maxx'} = $self->{'miny'} = $self->{'maxy'} = 0;
 	my $ok = 0;
 	foreach my $key (keys %{ $self->{'cells'} }) {
@@ -324,7 +475,7 @@ sub shrinkBoard {
 			$self->{'maxy'} = $yy;
 			$ok = 1;
 		};
-		if (($self->{'cells'}->{$xx, $yy}->{'state'} == 0) and ($self->{'cells'}->{$xx, $yy}->{'neighbours'} == 0)) {
+		if (($self->{'cells'}->{$xx, $yy}->{'state'} == 0) and ($self->{'cells'}->{$xx, $yy}->{'neighbours'}->{'total'} == 0)) {
 			delete $self->{'cells'}->{$key};	
 			--$self->{'usedCells'};
 		} else {
@@ -375,20 +526,22 @@ Game::Life::Infinite::Board - An infinite board for Conway's Game of Life.
 	for (1..10000) {
 		$board->tick($oscCheck);
 		my $stats = $board->statistics;
-		if ($stats->{'factor2'} < 0.3) { $board->shrinkBoard; };
 		if ($stats->{'liveCells'} == 0) {
 			print "--- ALL CELLS DIED! --- \n";
 			exit;
 		};
 		if ($stats->{'delta'} == 0) {
+			$board->shrinkBoard; 
 			$board->crudePrintBoard();
 			print "--- STATIC! --- \n";
 			exit;
 		};
 		if ($stats->{'oscilator'} > 1) {
+			$board->shrinkBoard;
 			$board->crudePrintBoard();
 			print "--- OSCILATOR " . $stats->{'oscilator'} . " --- \n";
 			$board->tick($oscCheck);
+			$board->shrinkBoard;
 			$board->crudePrintBoard();
 			exit;
 		};
@@ -437,25 +590,25 @@ Change the rules on an existing board.
 
 C<< $board->updateCell($x,$y,$state); >>
 
-Set the state of the cell with coordinates $x,$y to $state, where $state can be 0 (dead) or 1 (alive).
+Set the state of the cell with coordinates $x,$y to $state, where $state can be 0 (dead) or 1..4 (alive). Standard rules board (not colored) can only use 1 for alive cell. Immigration board can only use 1 or 2. 
 
 =head2 C<loadInit>
 
 C<< $board->loadInit($filename) >>
 
-Loads a formation from a text file where live cells are marked with 'O' (upper case o). All other characters are interpreted as dead cells. The standard .cells files can be loaded this way, but name and description are ignored.
+Loads a formation from a text file where live cells are marked with 'O' (upper case o). If the character '2' is found, is used as a second color and board color is set to 'Immigration'. If characters '3' and/or '4' are found, they are used as a third and fourth color and board color is set to 'Quadlife'. All other characters are interpreted as dead cells. The standard .cells files can be loaded this way, but name and description (lines starting with '!') are ignored.
 
 =head2 C<saveGridTxt>
 
 C<< $board->saveGridTxt($filename) >>
 
-Saves the current board formation as text, using 'O' for live cells and '.' for dead cells. The resulting file can be loaded using loadInit.
+Saves the current board formation as text, using 'O' for live cells and '.' for dead cells. '2', '3' and '4' are used for extra colors. The resulting file can be loaded using loadInit.
 
 =head2 C<crudePrintBoard>
 
 C<< $board->crudePrintBoard; >>
 
-Prints the board with 'O' for live cells and '.' for dead cells, plus some information about the current state of the board.
+Prints the board with 'O' for live cells and '.' for dead cells, plus some information about the current state of the board. If the board is an Immigration or Quadlife board, characters '2', '3' and '4' are used for the extra colors.
 
 =head2 C<tick>
 
@@ -467,9 +620,22 @@ Applies the rules once and transforms the board to the next generation. If $oscC
 
 C<< $board->shrinkBoard; >>
 
-Shrinks the board by deleting cell entries from the internal grid data structure (which saves memory and speeds up processing) and adjusting minx, maxx, miny, maxy attributes, which speeds up oscilator detection and printing and keeps the file saved by saveGridTxt smaller. Shrinking is very fast and offers considerable speed gains in larger and older populations, so it can be called after each generation or depending on the 'factor2' attribute, which is the ratio of live cells to total (live plus dead) cells.
+Shrinks the board by deleting cell entries from the internal grid data structure (which saves memory and speeds up processing) and adjusting minx, maxx, miny, maxy attributes, which speeds up oscilator detection and printing and keeps the file saved by saveGridTxt smaller. Since v. 0.04, dead cells are deleted anyway in each tick so there is no need to call shrinkBoard for speed reasons. shrinkBoard is now usefull when there is need for the boundaries to be adjusted. 
+
+=head2 C<setColor>
+
+C<< $board->setColor($color); >>
+
+Defines the use of color. $color can be one of 'Immigration', 'Quadlife' or 'Normal'. Color cannot be changed if the board is older that generation zero. Failure (unknown color or generation > 0) returns undef. Default color setting is 'Normal'. See http://www.conwaylife.com/wiki/Colourised_life for details.
+The rules of colourised life assume the standard rules for breeding and dying. Using a colourised board with non-standard rules is not yet supported. Loading a colourised formation will reset the board rules to standard. Trying to set non-standard rules on a colorised board will fail.
 
 =head1 ACCESSORS
+
+=head2 C<getColor>
+
+C<< my $color = $board->getColor(); >>
+
+Returns the color of the board (see setColor above).
 
 =head2 C<queryCell>
 

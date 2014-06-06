@@ -7,4 +7,4 @@ BEGIN {
 ";
 }
 
-diag( "Testing Game::Life $Game::Life::Infinite::Board::VERSION, Perl $], $^X" );
+diag( "Testing Game::Life::Infinite::Board $Game::Life::Infinite::Board::VERSION, Perl $], $^X" );
