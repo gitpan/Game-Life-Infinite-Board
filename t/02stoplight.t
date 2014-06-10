@@ -67,6 +67,8 @@ $expectedSnapshot = join('',
 is_deeply($stats, $expectedstats, 'Generation 3 Statistics') || diag explain { stats => $stats, 
 										stats2 => $expectedstats,
 										sn1 => $snapshot, 
-										sn2 => $expectedSnapshot };
+										sn2 => $expectedSnapshot,
+										board => $board
+									};
 cmp_ok( $snapshot->{'snapshot'}, 'eq', $expectedSnapshot, 'Generation 3 Snapshot' );
 

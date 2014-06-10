@@ -5,14 +5,15 @@ package Game::Life::Infinite::Board;
 use strict;  
 use warnings;  
 use Time::HiRes;
+use File::Slurp;
 require 5.10.1;
 
 BEGIN {
     use Exporter   ();
     use vars       qw($VERSION @ISA @EXPORT_OK %EXPORT_TAGS);
-    $VERSION     = sprintf( "%d.%02d", q($Revision: 0.04 $) =~ /\s(\d+)\.(\d+)/ );
+    $VERSION     = sprintf( "%d.%02d", q($Revision: 0.05 $) =~ /\s(\d+)\.(\d+)/ );
     @ISA         = qw(Exporter);
-    @EXPORT_OK   = qw();
+    @EXPORT_OK   = qw(format_is);
     %EXPORT_TAGS = ( );
 }
 
@@ -162,46 +163,29 @@ sub createCell {
 sub loadInit {
 	# Load an initial grid from a file.
 	my ($self, $fn, @rest) = @_;
-	if (not defined $fn) { return 'Untitled.cells'; };
-	my $xx = my $yy = my $cnt = 0;
-	my $immigration = my $quadlife = 0;
-	my $input;
-	open($input, "<", $fn) or die "cannot open $input: $!\n";
-	while (<$input>) {
-		chomp;
-		if ($_ =~ /^!/) { next; };
-		for ($yy = 0; $yy <= length($_); $yy++) {
-			if (substr($_, $yy, 1) eq 'O') {
-				&updateCell($self, $yy, $xx, 1);
-				$cnt++;
-			} elsif (substr($_, $yy, 1) eq '2') {
-				&setColor($self, 'immigration') or die "Failed to set color on load!\n";
-				&updateCell($self, $yy, $xx, 2);
-				$immigration = 1;
-				$cnt++;
-			} elsif (substr($_, $yy, 1) eq '3') {
-				&setColor($self, 'quadlife') or die "Failed to set color on load!\n";
-				&updateCell($self, $yy, $xx, 3);
-				$quadlife = 1;
-				$cnt++;
-			} elsif (substr($_, $yy, 1) eq '4') {
-				&setColor($self, 'quadlife') or die "Failed to set color on load!\n";
-				&updateCell($self, $yy, $xx, 4);
-				$quadlife = 1;
-				$cnt++;
-			};
-
-		};
-		$xx++;
+	my $untitled = 'Untitled.cells';
+	if (not defined $fn) { return $untitled; };
+	my @array = &read_file($fn);
+	my $ftype = &format_is(\@array);
+	my $loadok;
+	if (not defined $ftype) {
+		print "DEBUG: File format could not be detected.\n";
+		return $untitled;
+	}; 
+	if ($ftype->{'format'} eq 'CELLS') {
+		$loadok = $self->loadCells(\@array);
+		print "DEBUG: Loaded CELLS\n";
+	} else {
+		print "DEBUG: File format " . $ftype->{'format'} . " Version " . $ftype->{'version'} . " not yet supported.\n";
+		return $untitled;
 	};
-	close $input;
-	# Finalize board colour:
-	if ($quadlife) {
-		&setColor($self, 'quadlife') or die "Failed to set color on load!\n";
-	} elsif ($immigration) {
-		&setColor($self, 'immigration') or die "Failed to set color on load!\n";
+	if (not $loadok) {
+		print "DEBUG: Load failed!\n";
+		return $untitled;
+	} else {
+		$self->{'currentFn'} = $fn;
+		return $fn;
 	};
-	return $fn;
 };
 
 sub saveGridTxt {
@@ -271,22 +255,22 @@ sub tick {
 	my @dieCells = @{$resref->{'dieCells'}};
 	my @delCells = @{$resref->{'delCells'}};
 	#use Data::Dumper;
-	#print "DEBUG: newCells: " . &Dumper(\@newCells) . "\n";
-	#print "DEBUG: dieCells: " . &Dumper(\@dieCells) . "\n";
 	$self->{'delta'} = scalar(@newCells) + scalar(@dieCells);
 	# Apply changes on board:
-	foreach my $rec (@delCells) {
-		delete $self->{'cells'}->{$rec->[0], $rec->[1]};	
-		--$self->{'usedCells'};
-	};
 	foreach my $rec (@newCells) {
 		# TODO: Do something in case of error?
 		my $error = &updateCell($self, $rec->[0], $rec->[1], $rec->[2]);
 		$error = (defined $error) ? $error : 0;
-		#print "DEBUG: New cell $rec->[0],$rec->[1], status $rec->[2], result $error\n";
 	};
 	foreach my $rec (@dieCells) {
 		my $error = &updateCell($self, $rec->[0], $rec->[1], 0);
+	};
+	foreach my $rec (@delCells) {
+		# Verify that these cells are still without neighbours:
+		if ($self->{'cells'}->{$rec->[0], $rec->[1]}->{'neighbours'}->{'total'} == 0) {
+			delete $self->{'cells'}->{$rec->[0], $rec->[1]};	
+			--$self->{'usedCells'};
+		};
 	};
 	$self->{'gen'} = $self->{'gen'} + 1;
 	$self->{'factor2'} = ((defined $self->{'usedCells'}) and ($self->{'usedCells'} > 0)) ? $self->{'liveCells'} / $self->{'usedCells'} : 1;
@@ -325,7 +309,6 @@ sub tickMainLoop {
 			} else {
 				# Colorized
 				#use Data::Dumper;
-				#print "DEBUG: " . &Dumper($self->{'cells'}->{$xx, $yy}) . "\n";
 				my @colorcounts = ();
 				my $ccnt = 0;
 				foreach my $state (keys %{ $self->{'cells'}->{$xx, $yy}->{'neighbours'} }) {
@@ -336,7 +319,6 @@ sub tickMainLoop {
 						};
 					};
 				};
-				#print "DEBUG: " . &Dumper(\@colorcounts) . "\n";
 				if ($ccnt == 2) {
 					# Immigration, or first rule of Quadlife (Identical).
 					# Select maximum.
@@ -349,7 +331,6 @@ sub tickMainLoop {
 							};
 						};
 					};
-					#print "\tDEBUG: 2 colors, $rec->[2]";
 				} elsif ($ccnt == 3) {
 					# Second rule of Quadlife
 					for my $i (1..4) {
@@ -358,7 +339,6 @@ sub tickMainLoop {
 							last;
 						};
 					};
-					#print "\tDEBUG: 3 colors, $rec->[2]";
 				} elsif ($ccnt == 1) {
 					# Same color as parents:
 					for my $i (1..4) {
@@ -367,7 +347,6 @@ sub tickMainLoop {
 							last;
 						};
 					};
-					#print "\tDEBUG: 1 color, $rec->[2]";
 				} else {
 					# Unsupported or standard. Return first color.
 					$rec->[2] = 1;
@@ -434,7 +413,6 @@ sub snapshot {
 	# to another snapshot.
 	my $self = shift;
 	my $snapshot = '';
-	my $xxpcnt = my $xxmcnt = my $yypcnt = my $yymcnt = my $curcnt = 0;
 	for (my $yy = $self->{'miny'}; $yy <= $self->{'maxy'}; $yy++) {
 		foreach my $xx ($self->{'minx'} .. $self->{'maxx'}) {
 			if (defined ($self->{'cells'}->{$xx, $yy})) {
@@ -451,7 +429,6 @@ sub snapshot {
 		};
 		$snapshot .= "\n";
 	};
-
 	return {
 		'snapshot'	=> $snapshot,
 		'minx'		=> $self->{'minx'},
@@ -468,21 +445,22 @@ sub shrinkBoard {
 	my $ok = 0;
 	foreach my $key (keys %{ $self->{'cells'} }) {
 		my ($xx, $yy) = split(/$;/, $key, 2);
-		if (not $ok) {
-			$self->{'minx'} = $xx;
-			$self->{'maxx'} = $xx; 
-			$self->{'miny'} = $yy; 
-			$self->{'maxy'} = $yy;
-			$ok = 1;
-		};
 		if (($self->{'cells'}->{$xx, $yy}->{'state'} == 0) and ($self->{'cells'}->{$xx, $yy}->{'neighbours'}->{'total'} == 0)) {
 			delete $self->{'cells'}->{$key};	
 			--$self->{'usedCells'};
 		} else {
-			if ($xx > $self->{'maxx'}) { $self->{'maxx'} = $xx; };
-			if ($xx < $self->{'minx'}) { $self->{'minx'} = $xx; };
-			if ($yy > $self->{'maxy'}) { $self->{'maxy'} = $yy; };
-			if ($yy < $self->{'miny'}) { $self->{'miny'} = $yy; };
+			if ($ok) {
+				if ($xx > $self->{'maxx'}) { $self->{'maxx'} = $xx; };
+				if ($xx < $self->{'minx'}) { $self->{'minx'} = $xx; };
+				if ($yy > $self->{'maxy'}) { $self->{'maxy'} = $yy; };
+				if ($yy < $self->{'miny'}) { $self->{'miny'} = $yy; };
+			} else {
+				$self->{'minx'} = $xx;
+				$self->{'maxx'} = $xx; 
+				$self->{'miny'} = $yy; 
+				$self->{'maxy'} = $yy;
+				$ok = 1;
+			};
 		};
 	};
 	return;
@@ -505,6 +483,87 @@ sub statistics {
 		'factor2'	=> $self->{'factor2'},
 		'lastTI'	=> $self->{'lastTI'},
 	};
+};
+
+sub format_is {
+	my ($faref) = @_;	# Array ref containing file.
+	my %result = (
+		format	=> undef,
+		version	=> undef
+	);
+	foreach my $line (@{ $faref }) {
+		chomp($line);
+		if (($line =~ /^#Life 1.05/) or ($line =~ /^#Life 1.06/) or ($line =~ /^#MCell/)) {
+			($result{format}, $result{version}) = split / /, $line, 2;
+			$result{format} =~ s/#//;
+			return \%result;
+		} elsif ($line =~ /^(b|o|[[:digit:]])/) {
+			($result{format}, $result{version}) = ('RLE', 'N/A'); 
+			return \%result;
+		} elsif ($line =~ /^(\.|O|!)/) {
+			($result{format}, $result{version}) = ('CELLS', 'N/A'); 
+			return \%result;
+		} elsif ($line =~ /^(\.|O|2|3|4|!)/) {
+			($result{format}, $result{version}) = ('CELLS', 'N/A'); 
+			return \%result;
+		};
+	};
+	return undef;
+};
+
+sub loadCells {
+	# Load an initial grid from an array containing 
+	# a file in cells (ASCII) format.
+	my ($self, $array, @rest) = @_;
+	if (not defined $array) { return undef; };
+	my $name = 'Untitled';
+	my @descrArr = (); 
+	my $xx = my $yy = my $cnt = 0;
+	my $immigration = my $quadlife = 0;
+	#my $input;
+	#open($input, "<", $fn) or die "cannot open $input: $!\n";
+	#while (<$input>) {
+	foreach my $input (@{ $array }) {
+		chomp($input);
+		if ($input =~ /^!Name: /) {
+			(undef, undef, $name) = split /(^!Name: )/, $input, 3;
+			next;
+		} elsif ($input =~ /^!/) {
+			push @descrArr, $input;
+			next;
+		};
+		for ($yy = 0; $yy <= length($input); $yy++) {
+			if (substr($input, $yy, 1) eq 'O') {
+				$self->updateCell($yy, $xx, 1);
+				$cnt++;
+			} elsif (substr($input, $yy, 1) eq '2') {
+				$self->setColor('immigration') or die "Failed to set color on load!\n";
+				$self->updateCell($yy, $xx, 2);
+				$immigration = 1;
+				$cnt++;
+			} elsif (substr($input, $yy, 1) eq '3') {
+				$self->setColor('quadlife') or die "Failed to set color on load!\n";
+				$self->updateCell($yy, $xx, 3);
+				$quadlife = 1;
+				$cnt++;
+			} elsif (substr($input, $yy, 1) eq '4') {
+				$self->setColor('quadlife') or die "Failed to set color on load!\n";
+				$self->updateCell($yy, $xx, 4);
+				$quadlife = 1;
+				$cnt++;
+			};
+		};
+		$xx++;
+	};
+	$self->{'name'} = $name;
+	$self->{'description'} = \@descrArr;
+	# Finalize board colour:
+	if ($quadlife) {
+		$self->setColor('quadlife') or die "Failed to set color on load!\n";
+	} elsif ($immigration) {
+		$self->setColor('immigration') or die "Failed to set color on load!\n";
+	};
+	return 1;
 };
 
 42;
@@ -566,6 +625,9 @@ Rules as parameter
 =item *
 Simple load, save and print
 
+=item *
+Colourised life support (Immigration, Quadlife)
+
 =back
 
 =head1 METHODS
@@ -596,7 +658,15 @@ Set the state of the cell with coordinates $x,$y to $state, where $state can be 
 
 C<< $board->loadInit($filename) >>
 
-Loads a formation from a text file where live cells are marked with 'O' (upper case o). If the character '2' is found, is used as a second color and board color is set to 'Immigration'. If characters '3' and/or '4' are found, they are used as a third and fourth color and board color is set to 'Quadlife'. All other characters are interpreted as dead cells. The standard .cells files can be loaded this way, but name and description (lines starting with '!') are ignored.
+Detects file format and loads a formation from a text file. Uses the function L</&format_is> to detect the file format and if a known format is successfully detected, uses the corresponding method (see below) to load the file. For now (0.05) only .cells format is supported.
+
+=head2 C<loadCells>
+
+C<< $board->loadCells($file_array_ref) >>
+
+Loads an initial grid from an array containing a file in cells (ASCII) format. Live cells are marked with 'O' (upper case o). If the character '2' is found, is used as a second color and board color is set to 'Immigration'. If characters '3' and/or '4' are found, they are used as a third and fourth color and board color is set to 'Quadlife'. All other characters are interpreted as dead cells. The standard .cells files can be loaded this way. Name (line starting with '!Name:') is stored in 'name' attribute. All other lines starting with '!' are stored as an array ref in 'description' attribute (see L</ATTRIBUTES>). 
+
+
 
 =head2 C<saveGridTxt>
 
@@ -626,7 +696,7 @@ Shrinks the board by deleting cell entries from the internal grid data structure
 
 C<< $board->setColor($color); >>
 
-Defines the use of color. $color can be one of 'Immigration', 'Quadlife' or 'Normal'. Color cannot be changed if the board is older that generation zero. Failure (unknown color or generation > 0) returns undef. Default color setting is 'Normal'. See http://www.conwaylife.com/wiki/Colourised_life for details.
+Defines the use of color. $color can be one of 'Immigration', 'Quadlife' or 'Normal'. Color cannot be changed if the board is older that generation zero. Failure (unknown color or generation > 0) returns undef. Default color setting is 'Normal'. See L<http://www.conwaylife.com/wiki/Colourised_life> for details.
 The rules of colourised life assume the standard rules for breeding and dying. Using a colourised board with non-standard rules is not yet supported. Loading a colourised formation will reset the board rules to standard. Trying to set non-standard rules on a colorised board will fail.
 
 =head1 ACCESSORS
@@ -689,9 +759,25 @@ The time in seconds spent calculating the last generation. Time::HiRes is used i
 
 =back
 
+=head1 FUNCTIONS
+
+=over
+
+=item C<format_is>
+
+C<< my $result = &format_is($file_array_ref); >>
+
+C<< my $format = $result->{'format'}; >>
+
+C<< my $version = $result->{'version'} >>
+
+Expects an array ref holding a file. Returns undef if the file is not recognized or a hash ref with the result. Currently detecting: Life 1.05 and 1.06, MCell, RLE, cells.
+
+=back
+
 =head1 ATTRIBUTES
 
-Some attributes of interest that you can access directly ($board->{'attribute_name'}):
+Some attributes of interest that you can access directly (C<< $board->{'attribute_name'} >>):
 
 =over
 
@@ -702,6 +788,10 @@ Used to store a filename.
 =item C<name>
 
 Used to store a name for the formation.
+
+=item C<description>
+
+Used to store a description for the formation.
 
 =item C<liveRules>
 

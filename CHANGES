@@ -1,3 +1,10 @@
+0.05:
+
+- Fixed shrinkBoard bug that caused random test failures in perl versions 
+  >= 5.18.2.
+- File format detection and .cells format loading. Rest of formats in next
+  version.
+
 0.04:
 
 - Support for colorised life - Immigration
