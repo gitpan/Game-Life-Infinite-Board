@@ -1,4 +1,10 @@
+0.07:
+
+- Added tests for file formats.
+- Minor fixes.
+
 0.06:
+
 - Removed dependency on File::Slurp.
 - RLE file format support.
 - Life 1.05 file format support.

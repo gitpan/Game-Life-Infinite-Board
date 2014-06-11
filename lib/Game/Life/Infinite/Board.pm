@@ -10,7 +10,7 @@ require 5.10.1;
 BEGIN {
     use Exporter   ();
     use vars       qw($VERSION @ISA @EXPORT_OK %EXPORT_TAGS);
-    $VERSION     = sprintf( "%d.%02d", q($Revision: 0.06 $) =~ /\s(\d+)\.(\d+)/ );
+    $VERSION     = sprintf( "%d.%02d", q($Revision: 0.07 $) =~ /\s(\d+)\.(\d+)/ );
     @ISA         = qw(Exporter);
     @EXPORT_OK   = qw(format_is);
     %EXPORT_TAGS = ( );
@@ -165,7 +165,7 @@ sub loadInit {
 	my $untitled = 'Untitled.cells';
 	if (not defined $fn) { return $untitled; };
 	my @array;
-	open(my $fh,"<:crlf", $fn);
+	open(my $fh,"<:crlf", $fn) or die "Failed to open $fn: $!";
 	while (<$fh>) { push @array, $_; };
 	close $fh;
 	my $ftype = &format_is(\@array);
