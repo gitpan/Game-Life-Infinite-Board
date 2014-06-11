@@ -20,4 +20,4 @@ no_index:
 requires:
   Time::HiRes: '1.9721'
   perl: '5.010001'
-version: '0.05'
+version: '0.06'

@@ -1,3 +1,9 @@
+0.06:
+- Removed dependency on File::Slurp.
+- RLE file format support.
+- Life 1.05 file format support.
+- Life 1.06 file format support.
+
 0.05:
 
 - Fixed shrinkBoard bug that caused random test failures in perl versions 

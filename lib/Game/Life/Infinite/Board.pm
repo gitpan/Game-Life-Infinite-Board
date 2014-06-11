@@ -5,13 +5,12 @@ package Game::Life::Infinite::Board;
 use strict;  
 use warnings;  
 use Time::HiRes;
-use File::Slurp;
 require 5.10.1;
 
 BEGIN {
     use Exporter   ();
     use vars       qw($VERSION @ISA @EXPORT_OK %EXPORT_TAGS);
-    $VERSION     = sprintf( "%d.%02d", q($Revision: 0.05 $) =~ /\s(\d+)\.(\d+)/ );
+    $VERSION     = sprintf( "%d.%02d", q($Revision: 0.06 $) =~ /\s(\d+)\.(\d+)/ );
     @ISA         = qw(Exporter);
     @EXPORT_OK   = qw(format_is);
     %EXPORT_TAGS = ( );
@@ -165,7 +164,10 @@ sub loadInit {
 	my ($self, $fn, @rest) = @_;
 	my $untitled = 'Untitled.cells';
 	if (not defined $fn) { return $untitled; };
-	my @array = &read_file($fn);
+	my @array;
+	open(my $fh,"<:crlf", $fn);
+	while (<$fh>) { push @array, $_; };
+	close $fh;
 	my $ftype = &format_is(\@array);
 	my $loadok;
 	if (not defined $ftype) {
@@ -175,8 +177,17 @@ sub loadInit {
 	if ($ftype->{'format'} eq 'CELLS') {
 		$loadok = $self->loadCells(\@array);
 		print "DEBUG: Loaded CELLS\n";
+	} elsif ($ftype->{'format'} eq 'RLE') {
+		$loadok = $self->loadRLE(\@array);
+		print "DEBUG: Loaded RLE\n";
+	} elsif (($ftype->{'format'} eq 'Life') and ($ftype->{'version'} eq '1.05')) {
+		$loadok = $self->loadL105(\@array);
+		print "DEBUG: Loaded Life 1.05\n";
+	} elsif (($ftype->{'format'} eq 'Life') and ($ftype->{'version'} eq '1.06')) {
+		$loadok = $self->loadL106(\@array);
+		print "DEBUG: Loaded Life 1.06\n";
 	} else {
-		print "DEBUG: File format " . $ftype->{'format'} . " Version " . $ftype->{'version'} . " not yet supported.\n";
+		print "DEBUG: " . $ftype->{'format'} . " V. " . $ftype->{'version'} . " not supported yet.\n";
 		return $untitled;
 	};
 	if (not $loadok) {
@@ -230,7 +241,7 @@ sub crudePrintBoard {
 				} elsif ($self->{'cells'}->{$xx, $yy}->{'state'} > 1) {
 					print $self->{'cells'}->{$xx, $yy}->{'state'};
 				} else {
-					print '.';
+					print '_';
 				};
 			} else {
 				print '.';
@@ -511,6 +522,270 @@ sub format_is {
 	return undef;
 };
 
+sub loadL106 {
+	# Load an initial grid from an array containing 
+	# a file in Life 1.06 format.
+	my ($self, $array, @rest) = @_;
+	if (not defined $array) { return undef; };
+	foreach my $input (@{ $array }) {
+		chomp($input);
+		$input =~ s/^\s*(.*?)\s*$/$1/;
+		if ($input eq '') { next; };
+		if ($input =~ /^#Life 1.06/) { next; };
+		# Not much checks here. Assume that data are numbers.
+		my ($xx, $yy) = split / /, $input, 2;
+		$xx += 0;
+		$yy += 0;
+		$self->updateCell($xx, $yy, 1);
+	};
+	$self->{'name'} = '#Life 1.06 file'; # :-)
+	return 1;
+};
+
+
+sub loadL105 {
+	# Load an initial grid from an array containing 
+	# a file in Life 1.05 format.
+	my ($self, $array, @rest) = @_;
+	if (not defined $array) { return undef; };
+	my $posState = 0;
+	my $name = 'Untitled';
+	my $rules = '';
+	my $dataline = '';
+	my @descrArr = (); 
+	my $ulcx = my $ulcy = 0; # Upper left corner
+	my $dlinecnt = 0;
+	foreach my $input (@{ $array }) {
+		chomp($input);
+		if ($input eq '') { next; };
+		if ($input =~ /^#Life 1.05/) {
+			next;
+		} elsif ($input =~ /^#D Name: /) {
+			# Out of spec, but it seems that it's used:
+			(undef, undef, $name) = split /(^#D Name: )/, $input, 3;
+			next;
+		} elsif ($input =~ /^#D /) {
+			if ($dlinecnt >= 22) { return undef }; # Specs.
+			my (undef, undef, $dline) = split /(^#D )/, $input, 3;
+			$dline =~ s/^\s*(.*?)\s*$/$1/;
+			if (length($dline) > 78) {
+				print "DEBUG ERROR: D-line too long\n";
+				return undef; # Specs.
+			} else {
+				push @descrArr, $dline;
+			};
+			$dlinecnt++;
+		} elsif ($input =~ /^#N/) {
+			next;
+		} elsif ($input =~ /^#R /) {
+			# Rules.
+			(undef, undef, $rules) = split /(^#R )/, $input, 3;
+			my ($sstr, $bstr) = split /\//, $rules, 2;
+
+			my $barr = [];
+			my $sarr = [];
+			for (my $i = 0; $i < length($bstr); $i++) {
+				if (substr($bstr, $i, 1) =~ /[0-8]/) {
+					push @{ $barr }, substr($bstr, $i, 1); 
+				} else {
+					# Fail. Specs.
+					print "DEBUG ERROR: wrong rules\n";
+					return undef;
+				};
+			};
+			for (my $i = 0; $i < length($sstr); $i++) {
+				if (substr($sstr, $i, 1) =~ /[0-8]/) {
+					push @{ $sarr }, substr($sstr, $i, 1); 
+				} else {
+					# Fail. Specs.
+					print "DEBUG ERROR: wrong rules\n";
+					return undef;
+				};
+			};
+			$self->setRules([$barr, $sarr]);
+		} elsif ($input =~ /^#P /) {
+			(undef, $ulcx, $ulcy) = split / /, $input, 3;
+			$ulcx += 0;
+			$ulcy += 0;
+			$posState = 1;
+		} elsif (
+			($input =~/^(\.|\*)/) and 
+			($posState == 1)
+		) {
+			# Data line:
+			#print "DEBUG: DL: $input\n";
+			my $xx = $ulcx;
+			my $yy = $ulcy;
+			while (length($input) > 0) {
+				my $char = substr($input, 0, 1);
+				$input = substr($input, 1);
+				if ($char eq '*') {
+					#print "\tDEBUG: LIVE ($xx,$yy)\n";
+					$self->updateCell($xx, $yy, 1);
+					$xx++;
+				} elsif ($char eq '.') {
+					$xx++;
+				} else {
+					# Fail.
+					print "DEBUG ERROR: unknown char\n";
+					return undef;
+				};
+			};
+			$ulcy++;
+		} else {
+			# Unrecognized input:
+			print "DEBUG ERROR: unknown input:\n\t|$input|\n";
+			return undef;
+		};
+	};
+	$self->{'description'} = \@descrArr;
+	$self->{'name'} = $name;
+	return 1;
+};
+
+
+sub loadRLE {
+	# Load an initial grid from an array containing 
+	# a file in RLE format.
+	my ($self, $array, @rest) = @_;
+	if (not defined $array) { return undef; };
+	my $posState = 0;
+	my $name = 'Untitled';
+	my $headRules = my $rules = '';
+	my $dataline = '';
+	my $ulcx = my $ulcy = 0; # Upper left corner
+	foreach my $input (@{ $array }) {
+		chomp($input);
+		if ($input =~ /^#N /) {
+			(undef, undef, $name) = split /(^#N )/, $input, 3;
+			next;
+		} elsif ($input =~ /^#r /) {
+			# Rules:
+			(undef, undef, $headRules) = split /(^#r )/, $input, 3;
+			next;
+		} elsif (($input =~ /^#P /) or ($input =~ /^#R /)) {
+			(undef, $ulcx, $ulcy) = split / /, $input, 3;
+			next;
+		} elsif ($input =~ /^#/) {
+			# Ignore all other # lines:
+			next;
+		} elsif ($input =~ /^x/) {
+			# Header line. 
+			$input =~ s/ //g;
+			my ($xc, $yc);
+			($xc, $yc, $rules) = split /,/ , $input;
+			if ((not ($xc =~ /x=/)) or (not ($yc =~ /y=/))) {
+				# Fail.
+				return undef;
+			};
+			$posState = 1;
+			next;
+		} else {
+			# Normal line:
+			if (not $posState) {
+				# No header?
+				return undef;
+			};
+			# Join in one big string:
+			$dataline .= $input;
+			next;
+		};
+	};
+	# Now parse actual data:
+	my @dataArr = split /\$/, $dataline;
+	my %extraStates = ();
+	my $extraStatesCnt = 0;
+	my $xx = $ulcx;
+	my $yy = $ulcy;
+	#print "DEBUG: " . scalar(@dataArr) . " lines\n";
+REC:	foreach my $rec (@dataArr) {
+		#print "DEBUG: RLE REC: \n\t$rec\n";
+		#print "\tLINE: $yy\n";
+		my $cntstr = '0';
+	CHAR:	while (length($rec) > 0) {
+			my $char = substr($rec, 0, 1);
+			$rec = substr($rec, 1);
+			if ($char =~ /\d/) {
+				$cntstr .= $char;
+				next CHAR;
+			} elsif ($char eq 'o') {
+				my $cnt = ($cntstr eq '0') ? 1 : $cntstr + 0;
+				$cntstr = '0'; # Reset.
+				for (my $i = 0; $i < $cnt; $i++) {
+					$self->updateCell($xx++, $yy, 1);
+				};
+			} elsif ($char eq 'b') {
+				my $cnt = ($cntstr eq '0') ? 1 : $cntstr + 0;
+				$cntstr = '0'; # Reset.
+				$xx += $cnt;
+			} elsif ($char eq '!') {
+				# No more! 
+				last REC;
+			} else {
+				# Handle unknown characters as extra states. Good luck with that.
+				# We will handle a max of 3 extra states (Immigration/Quadlife).
+				my $cnt = ($cntstr eq '0') ? 1 : $cntstr + 0;
+				if (defined $extraStates{$char}) {
+					for (my $i = 0; $i < $cnt; $i++) {
+						$self->updateCell($xx++, $yy, $extraStates{$char});
+					};
+				} else {
+					# New state 
+					$extraStatesCnt++;
+					if ($extraStatesCnt > 3) {
+						# Fail.
+						return undef;
+					} else {
+						$extraStates{$char} = $extraStatesCnt+1;
+					};
+					if ($extraStatesCnt == 1) {
+						$self->setColor('immigration') or die "Failed to set color on load!\n";
+					} elsif ($extraStatesCnt > 1) {
+						$self->setColor('quadlife') or die "Failed to set color on load!\n";
+					};
+					for (my $i = 0; $i < $cnt; $i++) {
+						$self->updateCell($xx++, $yy, $extraStates{$char});
+					};
+				};
+			};
+		};
+		# If there are digits left, they are empty lines.
+		my $cnt = ($cntstr eq '0') ? 1 : $cntstr + 0;
+		$cntstr = '0'; # Reset.
+		$yy += $cnt;	# Next line or skip lines.
+		$xx = $ulcx;	# Reset
+	};
+	$self->{'name'} = $name;
+	if ($extraStatesCnt > 1) {
+		$self->setColor('quadlife') or die "Failed to set color on load!\n";
+		#print "DEBUG: RLE: Quadlife\n";
+	} elsif ($extraStatesCnt == 1) {
+		$self->setColor('immigration') or die "Failed to set color on load!\n";
+		#print "DEBUG: RLE: Immigration\n";
+	};
+	# Handle rules:
+	my $bstr = my $sstr = '';
+	if ($rules ne '') {
+		# Rules in header line have priority over comment line rules:
+		(undef, $rules) = split /=/, $rules, 2;
+		($bstr, $sstr) = split /\//, $rules, 2;
+	} elsif ($headRules ne '') {
+		my ($sstr, $bstr) = split /\//, $headRules, 2;
+	};
+	if (($rules ne '') or ($headRules ne '')) {
+		my $barr = [];
+		my $sarr = [];
+		for (my $i = 0; $i < length($bstr); $i++) {
+			if (substr($bstr, $i, 1) =~ /\d/) { push @{ $barr }, substr($bstr, $i, 1); };
+		};
+		for (my $i = 0; $i < length($sstr); $i++) {
+			if (substr($sstr, $i, 1) =~ /\d/) { push @{ $sarr }, substr($sstr, $i, 1); };
+		};
+		$self->setRules([$barr, $sarr]);
+	};
+	return 1;
+};
+
 sub loadCells {
 	# Load an initial grid from an array containing 
 	# a file in cells (ASCII) format.
@@ -658,7 +933,7 @@ Set the state of the cell with coordinates $x,$y to $state, where $state can be 
 
 C<< $board->loadInit($filename) >>
 
-Detects file format and loads a formation from a text file. Uses the function L</&format_is> to detect the file format and if a known format is successfully detected, uses the corresponding method (see below) to load the file. For now (0.05) only .cells format is supported.
+Detects file format and loads a formation from a text file. Uses the function L</&format_is> to detect the file format and if a known format is successfully detected, uses the corresponding method (see below) to load the file. For now (0.06) only .cells and .rle format are supported.
 
 =head2 C<loadCells>
 
@@ -666,7 +941,23 @@ C<< $board->loadCells($file_array_ref) >>
 
 Loads an initial grid from an array containing a file in cells (ASCII) format. Live cells are marked with 'O' (upper case o). If the character '2' is found, is used as a second color and board color is set to 'Immigration'. If characters '3' and/or '4' are found, they are used as a third and fourth color and board color is set to 'Quadlife'. All other characters are interpreted as dead cells. The standard .cells files can be loaded this way. Name (line starting with '!Name:') is stored in 'name' attribute. All other lines starting with '!' are stored as an array ref in 'description' attribute (see L</ATTRIBUTES>). 
 
+=head2 C<loadRLE>
 
+C<< $board->loadRLE($file_array_ref) >>
+
+Loads an initial grid from an array containing a file in rle (run length encoded) format. The standard tags (b, o, $) are supported. The 3 first unknown tags found are used as extra cell states and the board color is set to 'Immigration' (one extra state) or 'Quadlife' (two or three extra states). If more unknown tags are found, the file fails to load. Any rules string found in either header line or #r line is honored. #P or #R (upper left corner coordinates) lines are parsed and used. If not found, upper left corner is set to (0,0). Name (#N) is stored in the 'name' attribute (see L</ATTRIBUTES>). For more information about rle format see L<http://www.conwaylife.com/wiki/Run_Length_Encoded>. 
+
+=head2 C<loadL105>
+
+C<< $board->loadL105($file_array_ref) >>
+
+Loads an initial grid from an array containing a file in Life 1.05 format as described in L<http://www.conwaylife.com/wiki/Life_1.05>. If found, a comment line (#D) containing the string "Name:" is used to fill the 'name' attribute. Color is not supported in this format. 
+
+=head2 C<loadL106>
+
+C<< $board->loadL106($file_array_ref) >>
+
+Loads an initial grid from an array containing a file in Life 1.06 format as described in L<http://www.conwaylife.com/wiki/Life_1.06>. Color is not supported in this format.
 
 =head2 C<saveGridTxt>
 
